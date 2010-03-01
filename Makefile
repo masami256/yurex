@@ -1,12 +1,15 @@
 CC=g++
 
 CPPFLAGS = -Wall -O2 -g
-CPPFLAGS += -lusb-1.0
+LDLAGS = -lusb-1.0
 
 target = yurex
 
-$(target):
-	$(CC) $(CPPFLAGS) yurex.cc -o $(target)
+$(target): $(target).o
+	$(CC) $(LDLAGS) $(target).o -o $(target)
+
+.cc.o:
+	$(CC) $(CPPFLAGS) -c $<
 
 clean:
 	-rm *~ core $(target)

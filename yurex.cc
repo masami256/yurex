@@ -4,6 +4,17 @@
 #define YUREX_VENDOR_ID 0x0c45
 #define YUREX_PRODUCT_ID 0x1010
 
+// Those commands come from OpenBSD driver.
+// Thanks to Yojiro UO san.
+#define CMD_NONE       0xf0
+#define CMD_EOF        0x0d
+#define CMD_ACK        0x21
+#define CMD_MODE       0x41 /* XXX */
+#define CMD_VALUE      0x43
+#define CMD_READ       0x52
+#define CMD_WRITE      0x53
+#define CMD_PADDING    0xff
+
 enum {
      Yurex_not_open = 0,
      Yurex_open,
@@ -19,6 +30,14 @@ public:
      void showYurexInfo();
 
      bool openYurex();
+
+     void findEndPoint();
+     bool detachKernelDriver();
+     bool claimToYurex();
+     bool releaseInterface();
+
+     bool readData();
+     bool writeData();
 
 private:
      struct libusb_device_descriptor descriptor_;
@@ -37,6 +56,14 @@ private:
      void setHandle(libusb_device_handle *handle) { handle_ = handle; }
      libusb_device_handle *getHandle() { return handle_; }
 
+     libusb_endpoint_descriptor const *endpoint_;
+     void setEndPoint(const libusb_endpoint_descriptor *endpoint) { endpoint_ = endpoint; }
+     const libusb_endpoint_descriptor *getEndPoint() { return endpoint_; }
+
+     libusb_config_descriptor *config_;
+     void setConfig(libusb_config_descriptor *config) { config_ = config; }
+     libusb_config_descriptor *getConfig() { return config_; }
+
      // if Yurex device was opened successfully, it should be set "Yurex_open".
      bool dev_state;
      void init() throw (const char *);
@@ -44,6 +71,7 @@ private:
 
      bool checkYurexDevice() throw (const char *);
      void clearDeviceList();
+
 };
 
 Yurex::Yurex()
@@ -51,6 +79,7 @@ Yurex::Yurex()
      dev_state = Yurex_not_open;
      devices_ = NULL;
      handle_ = NULL;
+     config_ = NULL;
 }
 
 Yurex::~Yurex()
@@ -74,10 +103,14 @@ void Yurex::clearDeviceList()
 void Yurex::init() throw (const char *)
 {
      int ret;
-     ret = libusb_init(NULL);
+     libusb_context *ctx = NULL;
+
+     ret = libusb_init(&ctx);
 
      if (ret < 0) 
 	  throw "libusb_init was failed";
+
+     libusb_set_debug(ctx, 3);
 
 }
 
@@ -160,6 +193,135 @@ void Yurex::showYurexInfo()
 
 }
 
+bool Yurex::detachKernelDriver()
+{
+     libusb_device_handle *handle = getHandle();
+     bool ret = true;
+
+     //Detach driver if kernel driver is attached.
+     if (libusb_kernel_driver_active(handle, 0) == 1) { 
+	  std::cout<< "Kernel Driver Active" << std::endl;
+	  
+	  if(libusb_detach_kernel_driver(handle, 0) == 0) {
+	       std::cout<< "Kernel Driver Detached!" << std::endl;
+	       ret = true;
+	  } else {
+	       ret = false;
+	  }
+     }
+
+     return ret;
+}
+
+bool Yurex::claimToYurex()
+{
+     libusb_device_handle *handle = getHandle();
+     int ret;
+
+     //claim interface 0 (the first) of device (mine had jsut 1)
+     ret = libusb_claim_interface(handle, 0); 
+     if(ret < 0) 
+	  std::cout << "Cannot Claim Interface" << std::endl;
+
+     std::cout << "ret is " << ret << std::endl;
+
+     return ret < 0? false : true;
+}
+
+void Yurex::findEndPoint()
+{
+     libusb_config_descriptor *config = getConfig();
+     const libusb_interface_descriptor *interdesc;
+     const libusb_endpoint_descriptor *epdesc;
+     const libusb_interface *inter;
+
+     libusb_get_config_descriptor(getDevice(), 0, &config);
+
+     std::cout << "find endpoint" << std::endl;
+
+     // Actually, yulex may only have one endpoint.
+     for(int i = 0; i < (int) config->bNumInterfaces; i++) {
+	  inter = &config->interface[i];
+
+	  std::cout << "Number of alternate settings: "<< inter->num_altsetting << " | ";
+
+	  for(int j = 0; j < inter->num_altsetting; j++) {
+	       interdesc = &inter->altsetting[j];
+
+	       std::cout << "Interface Number: " << (int) interdesc->bInterfaceNumber << " | ";
+	       std::cout << "Number of endpoints: "<< (int) interdesc->bNumEndpoints << " | ";
+
+	       for(int k = 0; k < (int) interdesc->bNumEndpoints; k++) {
+		    epdesc = &interdesc->endpoint[k];
+		    std::cout << "Descriptor Type: " << (int) epdesc->bDescriptorType << " | ";
+		    std::cout <<"EP Address: " << (int) epdesc->bEndpointAddress << " | " << std::endl;
+		    setEndPoint(epdesc);
+	       }
+	  }
+     }
+
+}
+
+bool Yurex::releaseInterface()
+{
+     int ret;
+     bool b = true;
+
+     libusb_free_config_descriptor(getConfig());
+
+     ret = libusb_release_interface(getHandle(), 0); //release the claimed interface
+     if(ret != 0) {
+	  std::cout << "Cannot Release Interface" << std::endl;
+	  b = false;
+     }
+
+     return b;
+}
+
+bool Yurex::readData()
+{
+     unsigned char data[8] = { CMD_PADDING };
+     int ret;
+     int actual = 0;
+
+     data[0] = CMD_READ;
+     data[1] = CMD_EOF;
+     
+     ret = libusb_bulk_transfer(getHandle(), getEndPoint()->bEndpointAddress, data, sizeof(data), &actual, 2000);
+     std::cout << "ret is " << ret << " : actual is " << actual << std::endl;
+     if(ret < 0) {
+	  std::cout << "Reading Error" << std::endl;
+     } else { 
+	  std::cout << "Reading Successful!" << std::endl;
+	  for (int i = 0; i < sizeof(data); i++)
+	       std::cout << std::hex << std::showbase << data[i] << ":";
+	  std::cout << std::endl;
+     }
+
+
+     return true;
+}
+
+bool Yurex::writeData()
+{
+     unsigned char data[8] = { CMD_PADDING };
+     int ret;
+     int actual = 0;
+     
+     data[0] = CMD_MODE;
+     data[1] = 0;
+     data[2] = CMD_EOF;
+
+     ret = libusb_bulk_transfer(getHandle(), (getEndPoint()->bEndpointAddress | LIBUSB_ENDPOINT_OUT), data, sizeof(data), &actual, 2 * 1000);
+     std::cout << "ret is " << ret << " : actual is " << actual << std::endl;
+     if(ret == 0 && actual == sizeof(data)) 
+	  std::cout << "Writing Successful!" << std::endl;
+     else
+	  std::cout << "Write Error" << std::endl;
+
+     return true;
+}
+
 int main(int argc, char **argv)
 {
      Yurex op;
@@ -176,5 +338,29 @@ int main(int argc, char **argv)
 	  return -1;
      }
 
+     std::cout << "Open Yurex device is success" << std::endl;
+
+     if (!op.detachKernelDriver()) {
+	  std::cout << "Cannot detach kernel driver" << std::endl;
+	  return -1;
+     }
+
+     std::cout << "Claim to Yurex device" << std::endl;
+
+     if (!op.claimToYurex())
+	  return -1;
+
+     std::cout << "Start search endpoint" << std::endl;
+
+     op.findEndPoint();
+     
+     op.writeData();
+     op.readData();
+
+     if (!op.releaseInterface())
+	  return -1;
+
+     
+     std::cout << "Done." << std::endl;
      return 0;
 }
