@@ -5,7 +5,7 @@
 #define YUREX_PRODUCT_ID 0x1010
 
 // Those commands come from OpenBSD driver.
-// Thanks to Yojiro UO san.
+// Thanks to @yojiro san.
 #define CMD_NONE       0xf0
 #define CMD_EOF        0x0d
 #define CMD_ACK        0x21
@@ -294,7 +294,7 @@ bool Yurex::readData()
      } else { 
 	  std::cout << "Reading Successful!" << std::endl;
 	  for (int i = 0; i < sizeof(data); i++)
-	       std::cout << std::hex << std::showbase << data[i] << ":";
+	       std::cout << std::hex << std::showbase << (int) data[i] << ":";
 	  std::cout << std::endl;
      }
 
@@ -354,7 +354,9 @@ int main(int argc, char **argv)
 
      op.findEndPoint();
      
-     op.writeData();
+//     op.writeData();
+     for (int i = 0; i < 10000; i++)
+	  ;
      op.readData();
 
      if (!op.releaseInterface())
