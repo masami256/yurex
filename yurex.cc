@@ -36,8 +36,8 @@ public:
      bool claimToYurex();
      bool releaseInterface();
 
-     bool readDataASync();
-     bool writeDataASync();
+     bool readDataSync();
+     bool writeDataSync();
 
 private:
      struct libusb_device_descriptor descriptor_;
@@ -278,7 +278,7 @@ bool Yurex::releaseInterface()
      return b;
 }
 
-bool Yurex::readDataASync()
+bool Yurex::readDataSync()
 {
      unsigned char data[8] = { CMD_PADDING };
      int ret;
@@ -302,7 +302,7 @@ bool Yurex::readDataASync()
      return true;
 }
 
-bool Yurex::writeDataASync()
+bool Yurex::writeDataSync()
 {
      unsigned char data[8] = { CMD_PADDING };
      int ret;
@@ -354,9 +354,9 @@ int main(int argc, char **argv)
 
      op.findEndPoint();
      
-     op.writeDataASync();
+     op.writeDataSync();
 
-     op.readDataASync();
+     op.readDataSync();
 
      if (!op.releaseInterface())
 	  return -1;
